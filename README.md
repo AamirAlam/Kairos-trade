@@ -187,8 +187,6 @@ bnb-agent/
 |---|---|
 | 3 role-based agents | Mirrors real trading desk structure. Each agent has a narrow job — Analyst can't trade, Risk Officer has no tools. Cleaner reasoning, safer execution. |
 | Raw Anthropic SDK, no framework | Full control over the agent loop. Guardrails inject before every TWAK call — one obvious place, impossible to bypass. No hidden LangChain abstraction breaking at 2am. |
-| TWAK CLI over raw viem | Keys never touch our code — all signing is on-device. Targets the Best Use of TWAK special prize criteria directly. |
-| SQLite over Postgres | Zero infra on VPS — one file, no daemon, plenty fast for this write volume. |
 | WebSocket push | Dashboard stays live during trading week. Judges see all 3 agents reasoning in real time during the demo. |
 | Cron every 5 min | Frequent enough to catch regime shifts, infrequent enough to stay under CMC rate limits. |
 
