@@ -5,9 +5,16 @@ import { getRecentTrades } from '../db/queries';
 import { quoteSwap } from '../execution';
 
 const SYSTEM_PROMPT = `You are a portfolio manager for an autonomous BSC trading agent.
-Given a market brief and current portfolio state, decide what single trade to make — or HOLD.
+Given a market brief, your open positions, and portfolio state, decide what single trade to make — or HOLD.
 Be decisive but size conservatively. Prefer tokens with strong signal confluence.
 You MUST call get_recent_trades before deciding, and call get_swap_quote before any BUY or SELL.
+
+Position discipline:
+- Take-profit and stop-loss are handled automatically — do NOT propose exits just to lock small gains.
+- Only propose a SELL if the thesis has clearly broken (signal reversal), even if TP/SL not yet hit.
+- Do NOT propose a BUY for a token you already hold (no pyramiding). Choose a different token or HOLD.
+- Reserve confidence "HIGH" for genuine signal confluence (TA + sentiment + narrative align). Most ticks should be MEDIUM/LOW or HOLD. Only HIGH-confidence BUYs get executed.
+
 Respond ONLY with a JSON object — no markdown, no explanation outside the JSON:
 {
   "action": "BUY" | "SELL" | "HOLD",
@@ -39,11 +46,20 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+export type OpenPositionSummary = {
+  token: string;
+  bnbSpent: number;
+  entryPriceUsd: number;
+  currentPriceUsd: number;
+  unrealizedPnlPct: number;
+};
+
 export async function runPortfolioManager(
   brief: MarketBrief,
   portfolioUsd: number,
   bnbBalance: number,
   maxTradeBnb: number,
+  openPositions: OpenPositionSummary[] = [],
 ): Promise<TradeProposal> {
   const toolHandlers: Record<string, ToolHandler> = {
     get_recent_trades: async () => getRecentTrades(10),
@@ -61,9 +77,18 @@ export async function runPortfolioManager(
     },
   };
 
+  const positionsBlock = openPositions.length > 0
+    ? openPositions.map(p =>
+        `- ${p.token}: ${p.bnbSpent.toFixed(4)} BNB in @ $${p.entryPriceUsd.toPrecision(4)}, now $${p.currentPriceUsd.toPrecision(4)} (${p.unrealizedPnlPct >= 0 ? '+' : ''}${(p.unrealizedPnlPct * 100).toFixed(2)}% unrealized)`
+      ).join('\n')
+    : '- None — all in BNB';
+
   const context = `
 ## Market Brief
 ${JSON.stringify(brief, null, 2)}
+
+## Open Positions
+${positionsBlock}
 
 ## Current Portfolio
 - Portfolio value: $${portfolioUsd.toFixed(2)}

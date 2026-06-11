@@ -2,7 +2,14 @@ import { AgentState } from '../api/server';
 
 const DRAWDOWN_CAP = parseFloat(process.env.DRAWDOWN_CAP ?? '0.30');
 const MAX_TRADE_BNB = parseFloat(process.env.MAX_TRADE_SIZE_BNB ?? '0.5');
-const DAILY_LIMIT = parseInt(process.env.DAILY_TRADE_LIMIT ?? '10');
+const DAILY_LIMIT = parseInt(process.env.DAILY_TRADE_LIMIT ?? '4');
+
+// Active trading windows in UTC hours [startHour, endHour). New entries are only
+// opened during these high-liquidity windows. Exits (TP/SL) ignore this gate.
+// Defaults: 00:00–03:00 (Asia session) and 13:00–16:00 (US open overlap).
+const TRADING_WINDOWS: [number, number][] = (process.env.TRADING_WINDOWS ?? '0-3,13-16')
+  .split(',')
+  .map(w => w.split('-').map(Number) as [number, number]);
 
 const dailyTradeCount = new Map<string, number>();
 
@@ -42,6 +49,21 @@ export function recordTrade() {
 
 export function getDailyTradeCount(): number {
   return dailyTradeCount.get(todayKey()) ?? 0;
+}
+
+// Only open NEW entries inside a high-liquidity window. Forced exits bypass this.
+export function checkTradingWindow(now = new Date()): GuardrailResult {
+  const hour = now.getUTCHours();
+  const inWindow = TRADING_WINDOWS.some(([start, end]) => hour >= start && hour < end);
+  if (!inWindow) {
+    const windows = TRADING_WINDOWS.map(([s, e]) => `${s}:00–${e}:00`).join(', ');
+    return { allowed: false, reason: `Outside trading window (now ${hour}:00 UTC; active ${windows} UTC)` };
+  }
+  return { allowed: true };
+}
+
+export function isInTradingWindow(now = new Date()): boolean {
+  return checkTradingWindow(now).allowed;
 }
 
 // Token allowlist — 149 competition-eligible BEP-20 tokens

@@ -58,12 +58,12 @@ async function pnlSnapshot() {
 async function main() {
   createServer(PORT);
   updateAgentState({ status: 'RUNNING' });
-  console.log('[agent] starting — 3-agent pipeline, tick every 5 min');
+  console.log('[agent] starting — 3-agent pipeline, tick every 15 min (LLM pipeline gated to trading windows)');
 
   await pnlSnapshot();
   await tick();
 
-  cron.schedule('*/5 * * * *', tick);
+  cron.schedule('*/15 * * * *', tick);
   cron.schedule('0 * * * *', pnlSnapshot);
 }
 

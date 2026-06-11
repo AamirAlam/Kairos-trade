@@ -58,6 +58,22 @@ function migrate(db: DatabaseSync) {
       risk_reasoning TEXT,
       trade_id       INTEGER REFERENCES trades(id)
     );
+
+    CREATE TABLE IF NOT EXISTS positions (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      token            TEXT NOT NULL,
+      bnb_spent        REAL NOT NULL,
+      amount_token     REAL NOT NULL DEFAULT 0,
+      entry_price_usd  REAL NOT NULL,
+      opened_at        INTEGER NOT NULL,
+      status           TEXT NOT NULL DEFAULT 'OPEN' CHECK(status IN ('OPEN', 'CLOSED')),
+      closed_at        INTEGER,
+      exit_price_usd   REAL,
+      exit_reason      TEXT,
+      realized_pnl_pct REAL,
+      open_trade_id    INTEGER REFERENCES trades(id),
+      close_trade_id   INTEGER REFERENCES trades(id)
+    );
   `);
 
   // Non-destructive migrations for existing databases
@@ -109,4 +125,20 @@ export type AgentRun = {
   pm_reasoning: string | null;
   risk_reasoning: string | null;
   trade_id: number | null;
+};
+
+export type Position = {
+  id: number;
+  token: string;
+  bnb_spent: number;
+  amount_token: number;
+  entry_price_usd: number;
+  opened_at: number;
+  status: 'OPEN' | 'CLOSED';
+  closed_at: number | null;
+  exit_price_usd: number | null;
+  exit_reason: string | null;
+  realized_pnl_pct: number | null;
+  open_trade_id: number | null;
+  close_trade_id: number | null;
 };

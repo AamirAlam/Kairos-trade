@@ -15,9 +15,28 @@ export async function runAgent(opts: {
 }): Promise<string> {
   const { systemPrompt, userMessage, tools = [], toolHandlers = {}, maxTokens = 1024, role } = opts;
 
+  // Prompt caching: the system prompt and tool schemas are identical on every
+  // round-trip of the tool-use loop (the Analyst makes ~18). Caching this static
+  // prefix means each round reuses it at ~10% of the input cost instead of
+  // re-processing the full system + 12 tool schemas every time.
+  const system: Anthropic.TextBlockParam[] = [
+    { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+  ];
+
+  const cachedTools: Anthropic.Tool[] | undefined = tools.length
+    ? tools.map((t, i) =>
+        i === tools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t,
+      )
+    : undefined;
+
   const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: userMessage },
   ];
+
+  // Rolling cache breakpoint on the growing conversation. We move it to the most
+  // recent tool_result block each round so the accumulated context is cached
+  // incrementally. (System + tools use 2 breakpoints; this is the 3rd of 4 max.)
+  let prevCachedBlock: Anthropic.ToolResultBlockParam | null = null;
 
   let iterations = 0;
   const MAX_ITERATIONS = 10;
@@ -26,8 +45,8 @@ export async function runAgent(opts: {
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: maxTokens,
-      system: systemPrompt,
-      tools: tools.length ? tools : undefined,
+      system,
+      tools: cachedTools,
       messages,
     });
 
@@ -58,6 +77,14 @@ export async function runAgent(opts: {
           tool_use_id: block.id,
           content: JSON.stringify(result),
         });
+      }
+
+      // Advance the rolling cache breakpoint to this round's last result.
+      if (prevCachedBlock) delete prevCachedBlock.cache_control;
+      const lastBlock = toolResults[toolResults.length - 1];
+      if (lastBlock) {
+        lastBlock.cache_control = { type: 'ephemeral' };
+        prevCachedBlock = lastBlock;
       }
 
       messages.push({ role: 'user', content: toolResults });

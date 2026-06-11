@@ -1,11 +1,20 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { runAgent, parseJson } from './base';
-import { getFearGreed, getTokenPrices, getGlobalMetrics } from '../signals/cmc';
+import { getCmcMcpTools } from '../signals/cmcMcp';
 import { MarketBrief } from './types';
 
-const SYSTEM_PROMPT = `You are a crypto market analyst specialising in BNB Smart Chain tokens.
-Your job is to call the available tools, interpret the data, and produce a concise structured market brief.
-Be objective. Identify the current regime, key signals, and 2-3 token opportunities with reasoning.
+const SYSTEM_PROMPT = `You are a professional crypto market analyst specialising in BNB Smart Chain tokens.
+You have access to CoinMarketCap's full data suite — use it thoroughly before concluding.
+
+Required research steps (call tools in this order):
+1. get_global_metrics_latest — overall market regime, Fear & Greed, BTC dominance, altcoin season
+2. get_global_crypto_derivatives_metrics — funding rates, open interest, liquidations
+3. get_crypto_technical_analysis — RSI, MACD, EMA for your top candidate tokens
+4. trending_crypto_narratives — which narratives are gaining momentum right now
+5. get_crypto_latest_news — any breaking events that could affect BSC tokens
+6. get_upcoming_macro_events — macro headwinds or tailwinds in the next 24-48h
+
+Only after gathering data from at least steps 1–4, produce your final JSON brief.
+
 Respond ONLY with a JSON object matching this exact shape — no markdown, no explanation outside the JSON:
 {
   "regime": "BULL" | "BEAR" | "NEUTRAL",
@@ -16,48 +25,27 @@ Respond ONLY with a JSON object matching this exact shape — no markdown, no ex
   "topOpportunities": string[],
   "keyRisks": string[],
   "summary": string
-}`;
+}
 
-const TOOLS: Anthropic.Tool[] = [
-  {
-    name: 'get_fear_greed',
-    description: 'Returns the current Crypto Fear & Greed Index value and classification.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'get_token_prices',
-    description: 'Returns price, 1h/24h change, and volume for a list of token symbols.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        symbols: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'List of token symbols e.g. ["CAKE","BNB","PENDLE"]',
-        },
-      },
-      required: ['symbols'],
-    },
-  },
-  {
-    name: 'get_global_metrics',
-    description: 'Returns total market cap, BTC dominance, 24h volume, and market cap change.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
-  },
-];
+Rules:
+- topOpportunities: 2-4 items, each naming a specific token with a 1-line reason (e.g. "CAKE — MACD bullish cross, RSI 42 recovering from oversold")
+- keyRisks: 2-3 items
+- summary: ≤ 2 sentences capturing regime + strongest signal
+- Use actual numbers from the data (RSI values, funding rates, F&G score)`;
 
 export async function runAnalyst(): Promise<MarketBrief> {
+  const { tools, handlers } = await getCmcMcpTools();
+
   const raw = await runAgent({
     role: 'Analyst',
     systemPrompt: SYSTEM_PROMPT,
-    userMessage: 'Analyse current BSC market conditions and identify trading opportunities across the eligible token list. Focus on CAKE, PENDLE, FLOKI, BONK, and BNB as anchor tokens.',
-    tools: TOOLS,
-    toolHandlers: {
-      get_fear_greed: async () => getFearGreed(),
-      get_token_prices: async (input) => getTokenPrices(input.symbols as string[]),
-      get_global_metrics: async () => getGlobalMetrics(),
-    },
-    maxTokens: 1024,
+    userMessage: `Analyse current BSC market conditions using the CoinMarketCap tools.
+Focus on BSC-native tokens: CAKE, PENDLE, FLOKI, BONK, LISTA, THE, XVS, ALPACA.
+Check technical analysis for at least 3 of these tokens before forming your view.
+Use get_crypto_technical_analysis with interval=daily for each token you analyse.`,
+    tools,
+    toolHandlers: handlers,
+    maxTokens: 2048,
   });
 
   return parseJson<MarketBrief>(raw);

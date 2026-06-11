@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
-import { getRecentTrades, getPnlHistory, getRecentSignals, getRecentAgentRuns } from '../db/queries';
+import { getRecentTrades, getPnlHistory, getRecentSignals, getRecentAgentRuns, getRecentPositions } from '../db/queries';
 
 export type AgentState = {
   status: 'RUNNING' | 'PAUSED' | 'STOPPED';
@@ -65,6 +65,10 @@ export function createServer(port: number) {
       analyst_brief: r.analyst_brief ? JSON.parse(r.analyst_brief) : null,
     }));
     res.json(runs);
+  });
+
+  app.get('/api/positions', (_req, res) => {
+    res.json(getRecentPositions(50));
   });
 
   const server = http.createServer(app);

@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { resolveToken } from './tokens';
+import { getTokenHoldings } from './networth';
 
 const execAsync = promisify(exec);
 
@@ -46,6 +47,9 @@ function swapArgs(order: TradeOrder): string {
 export type WalletBalance = {
   bnb: number;
   totalUsd: number;
+  bnbUsd: number;
+  tokenUsd: number;
+  holdings: { symbol: string; amount: number; valueUsd: number }[];
 };
 
 export async function getWalletBalance(): Promise<WalletBalance> {
@@ -54,15 +58,27 @@ export async function getWalletBalance(): Promise<WalletBalance> {
       available?: string;
       total?: string;
       totalUsd?: number;
-      tokens?: { symbol: string; balance: string; valueUsd?: number }[];
+      address?: string;
     };
     const bnb = parseFloat(result.available ?? result.total ?? '0');
-    const tokenUsd = (result.tokens ?? []).reduce((sum, t) => sum + (t.valueUsd ?? 0), 0);
-    const totalUsd = (result.totalUsd ?? 0) + tokenUsd;
-    return { bnb, totalUsd };
+    const bnbUsd = result.totalUsd ?? 0;
+
+    // twak only reports native BNB — read BEP-20 holdings on-chain and price them.
+    let tokenUsd = 0;
+    let holdings: WalletBalance['holdings'] = [];
+    try {
+      const address = result.address ?? await getAgentAddress();
+      const tokenHoldings = await getTokenHoldings(address);
+      holdings = tokenHoldings.map(h => ({ symbol: h.symbol, amount: h.amount, valueUsd: h.valueUsd }));
+      tokenUsd = tokenHoldings.reduce((sum, h) => sum + h.valueUsd, 0);
+    } catch (err) {
+      console.error('[execution] on-chain token holdings failed:', err);
+    }
+
+    return { bnb, bnbUsd, tokenUsd, totalUsd: bnbUsd + tokenUsd, holdings };
   } catch (err) {
     console.error('[execution] failed to fetch wallet balance:', err);
-    return { bnb: 0, totalUsd: 0 };
+    return { bnb: 0, totalUsd: 0, bnbUsd: 0, tokenUsd: 0, holdings: [] };
   }
 }
 

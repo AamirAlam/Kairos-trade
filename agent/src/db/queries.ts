@@ -1,4 +1,4 @@
-import { getDb, Trade, PnlSnapshot, SignalLog, AgentRun } from './schema';
+import { getDb, Trade, PnlSnapshot, SignalLog, AgentRun, Position } from './schema';
 
 export function insertTrade(trade: Omit<Trade, 'id'>): number {
   const db = getDb();
@@ -74,4 +74,54 @@ export function getRecentAgentRuns(limit = 20): AgentRun[] {
   return getDb()
     .prepare(`SELECT * FROM agent_runs ORDER BY timestamp DESC LIMIT ?`)
     .all(limit) as AgentRun[];
+}
+
+// ── Positions ──────────────────────────────────────────────────────────────
+
+export function openPosition(p: {
+  token: string;
+  bnb_spent: number;
+  amount_token: number;
+  entry_price_usd: number;
+  opened_at: number;
+  open_trade_id: number | null;
+}): number {
+  const result = getDb().prepare(`
+    INSERT INTO positions (token, bnb_spent, amount_token, entry_price_usd, opened_at, status, open_trade_id)
+    VALUES (?, ?, ?, ?, ?, 'OPEN', ?)
+  `).run(p.token.toUpperCase(), p.bnb_spent, p.amount_token, p.entry_price_usd, p.opened_at, p.open_trade_id ?? null);
+  return Number(result.lastInsertRowid);
+}
+
+export function closePosition(id: number, c: {
+  closed_at: number;
+  exit_price_usd: number;
+  exit_reason: string;
+  realized_pnl_pct: number;
+  close_trade_id: number | null;
+}) {
+  getDb().prepare(`
+    UPDATE positions
+    SET status = 'CLOSED', closed_at = ?, exit_price_usd = ?, exit_reason = ?,
+        realized_pnl_pct = ?, close_trade_id = ?
+    WHERE id = ?
+  `).run(c.closed_at, c.exit_price_usd, c.exit_reason, c.realized_pnl_pct, c.close_trade_id ?? null, id);
+}
+
+export function getOpenPositions(): Position[] {
+  return getDb()
+    .prepare(`SELECT * FROM positions WHERE status = 'OPEN' ORDER BY opened_at ASC`)
+    .all() as Position[];
+}
+
+export function getOpenPositionByToken(token: string): Position | null {
+  return getDb()
+    .prepare(`SELECT * FROM positions WHERE status = 'OPEN' AND token = ? ORDER BY opened_at ASC LIMIT 1`)
+    .get(token.toUpperCase()) as Position | undefined ?? null;
+}
+
+export function getRecentPositions(limit = 50): Position[] {
+  return getDb()
+    .prepare(`SELECT * FROM positions ORDER BY opened_at DESC LIMIT ?`)
+    .all(limit) as Position[];
 }
